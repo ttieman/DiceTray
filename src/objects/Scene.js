@@ -92,10 +92,3 @@ export class Scene {
     }
 }
 
-// main.js
-function main() {
-    const mainScene = new Scene();
-    mainScene.start();
-}
-
-main();
