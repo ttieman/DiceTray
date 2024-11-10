@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import WebGL from "three/addons/capabilities/WebGL.js";
 import { DiceFactory } from './Mesh';
+import * as RAPIER from '@dimforge/rapier3d/rapier';
 
 export class SceneManager {
     static instance = null;
@@ -15,8 +16,10 @@ export class SceneManager {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(this.renderer.domElement);
+        
 
         this.scenes = new Map(); // Store different scenes
+        this.physicsWorld = null;
         this.setupEventListeners();
         
 
@@ -45,19 +48,24 @@ export class SceneManager {
         const sceneData = {
             scene,
             camera,
+            physicsObjects: new Map(),
             objects: new Map(),
             config: sceneConfig,
             initialized: false
         };
 
+        
         this.scenes.set(sceneName, sceneData);
         return sceneData;
     }
 
-    initializeScene(sceneName) {
+    async initializeScene(sceneName) {
         const sceneData = this.scenes.get(sceneName);
         if (!sceneData || sceneData.initialized) return;
-
+        
+        if(!this.physicsWorld) {
+            await this.initializePhysics();
+        }
         // Set up basic scene elements
         sceneData.camera.position.z = 5;
         this.initializeLighting(sceneData.scene);
@@ -67,6 +75,10 @@ export class SceneManager {
         }
 
         sceneData.initialized = true;
+    }
+
+    async initializePhysics() {
+        this.physicsWorld = new RAPIER.World({ x: 0.0, y: 0.0 , z: -4.0 }); 
     }
 
     initializeLighting(scene) {
@@ -85,10 +97,20 @@ export class SceneManager {
         const planeMaterial = new THREE.MeshBasicMaterial({color: 0xffffff});
 
         const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
-
         planeMesh.position.set(0,0,-8);
+        
+        const groundColliderDesc = RAPIER.ColliderDesc.cuboid(4, 4, 0.5); // Half-dimensions
+        const groundRigidBodyDesc = RAPIER.RigidBodyDesc.fixed()
+            .setTranslation(0, 0, -8);
+        const groundBody = this.physicsWorld.createRigidBody(groundRigidBodyDesc);
+        const groundCollider = this.physicsWorld.createCollider(groundColliderDesc, groundBody);
 
         sceneData.objects.set("plane", planeMesh);
+        sceneData.physicsObjects.set("plane", {
+            mesh: planeMesh,
+            body: groundBody,
+            collider: groundCollider
+        });
         sceneData.scene.add(planeMesh);
         
         const dice1 = diceFactory.createD6({
@@ -103,8 +125,32 @@ export class SceneManager {
             position: { x: 2, y: 2, z: 0 }
         });
 
+        const dice1BodyDesc = RAPIER.RigidBodyDesc.dynamic()
+            .setTranslation(0, 0, 0);
+        const dice1Body = this.physicsWorld.createRigidBody(dice1BodyDesc);
+        const dice1ColliderDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
+        this.physicsWorld.createCollider(dice1ColliderDesc, dice1Body);
+
+        // Add physics for dice2
+        const dice2BodyDesc = RAPIER.RigidBodyDesc.dynamic()
+            .setTranslation(2, 2, 0);
+        const dice2Body = this.physicsWorld.createRigidBody(dice2BodyDesc);
+        const dice2ColliderDesc = RAPIER.ColliderDesc.cuboid(0.5, 0.5, 0.5);
+        this.physicsWorld.createCollider(dice2ColliderDesc, dice2Body);
+
+
         sceneData.objects.set('dice1', dice1);
         sceneData.objects.set('dice2', dice2);
+
+        sceneData.physicsObjects.set('dice1', {
+            mesh: dice1,
+            body: dice1Body
+        });
+        sceneData.physicsObjects.set('dice2', {
+            mesh: dice2,
+            body: dice2Body
+        });
+
         sceneData.scene.add(dice1);
         sceneData.scene.add(dice2);
     }
@@ -128,7 +174,16 @@ export class SceneManager {
     reloadCurrentScene() {
         if (SceneManager.currentScene) {
             const sceneData = this.scenes.get(SceneManager.currentScene);
-            // Clear existing objects
+            
+            // Clear physics objects
+            sceneData.physicsObjects.forEach((physObj) => {
+                if (physObj.body) {
+                    this.physicsWorld.removeRigidBody(physObj.body);
+                }
+            });
+            sceneData.physicsObjects.clear();
+            
+            // Clear visual objects
             sceneData.objects.clear();
             while(sceneData.scene.children.length > 0) { 
                 sceneData.scene.remove(sceneData.scene.children[0]); 
@@ -148,18 +203,20 @@ export class SceneManager {
 
         requestAnimationFrame(this.animate);
 
-        // Animate objects in the current scene
-        const dice1 = sceneData.objects.get('dice1');
-        const dice2 = sceneData.objects.get('dice2');
-        
-        if (dice1) {
-            dice1.rotation.x += 0.01;
-            dice1.rotation.y += 0.01;
-        }
-        
-        if (dice2) {
-            dice2.rotation.z += 0.01;
-            dice2.rotation.y += 0.01;
+        // Step the physics world
+        if (this.physicsWorld) {
+            this.physicsWorld.step();
+
+            // Update visual objects based on physics
+            sceneData.physicsObjects.forEach((physObj, key) => {
+                if (physObj.body && physObj.mesh && key !== 'plane') { // Don't update static ground
+                    const position = physObj.body.translation();
+                    const rotation = physObj.body.rotation();
+                    
+                    physObj.mesh.position.set(position.x, position.y, position.z);
+                    physObj.mesh.quaternion.set(rotation.x, rotation.y, rotation.z, rotation.w);
+                }
+            });
         }
 
         this.renderer.render(sceneData.scene, sceneData.camera);
