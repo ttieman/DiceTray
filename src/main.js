@@ -1,8 +1,15 @@
-import { Scene } from "./objects/Scene";
+import { SceneManager } from "./objects/SceneManager";
 
 function main() {
-    const mainScene = new Scene();
-    mainScene.start();
+    const manager = SceneManager.getInstance();
+
+    if(!manager.checkWebGLSupport()) {
+        return;
+    }
+
+    manager.createScene("mainScene", { includeDice: true});
+
+    manager.loadScene("mainScene");
 }
 
 main();
