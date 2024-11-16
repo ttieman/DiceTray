@@ -1,10 +1,14 @@
 // main.js
 import { SceneManager } from "./objects/SceneManager";
+import { UiManager } from "./ui";
+
 import * as THREE from "three";
 import * as RAPIER from '@dimforge/rapier3d/rapier';
 
+
 async function main() {
     // Get the scene manager instance
+    const manager = new UiManager();
     const sceneManager = SceneManager.getInstance();
     
     // Create initial scene
