@@ -1,0 +1,40 @@
+services:
+  client:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build  # Use the build stage for development
+    environment:
+      NODE_ENV: development
+      VITE_API_URL: http://server:3000
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    command: npm run dev -- --host
+    networks:
+      - dice-network
+    depends_on:
+      - server
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    environment:
+      NODE_ENV: development
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/usr/src/app
+      - /usr/src/app/node_modules
+    networks:
+      - dice-network
+
+networks:
+  dice-network:
+    driver: bridge
+
+volumes:
+  node_modules:
